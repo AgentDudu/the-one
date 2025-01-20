@@ -8,13 +8,14 @@ import core.Settings;
 
 import java.util.*;
 
-/**
- * SimBetRouter optimized for reduced memory usage.
- */
 public class SimBetRouter extends ActiveRouter {
 
+  private static final double ALPHA = 0.7; // Weight for similarity
+  private static final double BETA = 0.3; // Weight for betweenness aging
+
   private Map<Integer, Set<Integer>> contactHistory;
-  private Map<Integer, Integer> betweennessCentrality;
+  private Map<Integer, Double> betweennessCentrality;
+  private int selfId;
 
   public SimBetRouter(Settings s) {
     super(s);
@@ -26,47 +27,62 @@ public class SimBetRouter extends ActiveRouter {
     super(r);
     this.contactHistory = new HashMap<>(r.contactHistory);
     this.betweennessCentrality = new HashMap<>(r.betweennessCentrality);
+    this.selfId = r.selfId;
   }
 
   @Override
   public void init(DTNHost host, List<MessageListener> mListeners) {
     super.init(host, mListeners);
-    contactHistory.put(host.getAddress(), new HashSet<>());
-    betweennessCentrality.put(host.getAddress(), 0);
+    selfId = host.getAddress();
+    contactHistory.put(selfId, new HashSet<>());
+    betweennessCentrality.put(selfId, 0.0);
   }
 
   @Override
   public void changedConnection(Connection con) {
     super.changedConnection(con);
     if (con.isUp()) {
-      int selfId = getHost().getAddress();
       int otherId = con.getOtherNode(getHost()).getAddress();
       contactHistory.computeIfAbsent(selfId, k -> new HashSet<>()).add(otherId);
       updateBetweennessCentrality(otherId);
     }
   }
 
-  @Override
-  public SimBetRouter replicate() {
-    return new SimBetRouter(this);
+  private double calculateSimBetUtility(int otherId) {
+    double similarity = calculateSimilarity(otherId);
+    double betweenness = calculateBetweennessCentrality(otherId);
+    return ALPHA * similarity + (1 - ALPHA) * betweenness;
   }
 
   private double calculateSimilarity(int otherId) {
-    Set<Integer> myContacts = contactHistory.get(getHost().getAddress());
+    Set<Integer> myContacts = contactHistory.get(selfId);
     Set<Integer> otherContacts = contactHistory.getOrDefault(otherId, Collections.emptySet());
 
     if (myContacts == null || myContacts.isEmpty() || otherContacts.isEmpty()) {
       return 0.0;
     }
 
-    long intersectionSize = myContacts.stream().filter(otherContacts::contains).count();
-    long unionSize = myContacts.size() + otherContacts.size() - intersectionSize;
+    int intersectionSize = 0;
+    for (Integer contact : myContacts) {
+      if (otherContacts.contains(contact)) {
+        intersectionSize++;
+      }
+    }
 
+    int unionSize = myContacts.size() + otherContacts.size() - intersectionSize;
     return unionSize == 0 ? 0.0 : (double) intersectionSize / unionSize;
   }
 
-  private int calculateBetweennessCentrality(int hostId) {
-    return betweennessCentrality.getOrDefault(hostId, 0);
+  private double calculateBetweennessCentrality(int hostId) {
+    return betweennessCentrality.getOrDefault(hostId, 0.0);
+  }
+
+  private void updateBetweennessCentrality(int hostId) {
+    long centrality = contactHistory.values().stream()
+        .filter(contacts -> contacts.contains(hostId))
+        .count();
+    double agedCentrality = betweennessCentrality.getOrDefault(hostId, 0.0) * (1 - BETA);
+    betweennessCentrality.put(hostId, agedCentrality + centrality);
   }
 
   @Override
@@ -78,22 +94,18 @@ public class SimBetRouter extends ActiveRouter {
       return;
     }
 
+    double selfUtility = calculateSimBetUtility(selfId);
+
     for (Connection con : connections) {
       int otherId = con.getOtherNode(getHost()).getAddress();
-      double similarity = calculateSimilarity(otherId);
-      double betweenness = calculateBetweennessCentrality(otherId);
+      double otherUtility = calculateSimBetUtility(otherId);
 
-      if (!shouldForwardMessage(similarity, betweenness)) {
+      if (otherUtility <= selfUtility) {
         continue;
       }
 
-      // Process messages directly without intermediate list
       for (Message msg : getMessageCollection()) {
-        if (msg.getTo().getAddress() == otherId) {
-          if (startTransfer(msg, con) == RCV_OK) {
-            break;
-          }
-        } else if (msg.getTtl() > 0 && !isBlacklistedMessage(msg.getId())) {
+        if (msg.getTtl() > 0 && !isBlacklistedMessage(msg.getId())) {
           if (startTransfer(msg, con) == RCV_OK) {
             break;
           }
@@ -103,29 +115,7 @@ public class SimBetRouter extends ActiveRouter {
   }
 
   @Override
-  public boolean createNewMessage(Message msg) {
-    makeRoomForNewMessage(msg.getSize());
-    msg.setTtl(this.msgTtl);
-    addToMessages(msg, true);
-    return true;
-  }
-
-  private boolean shouldForwardMessage(double similarity, double betweenness) {
-    double similarityThreshold = 0.4;
-    double betweennessThreshold = 0.4;
-
-    return similarity > similarityThreshold || betweenness > betweennessThreshold;
-  }
-
-  private void updateBetweennessCentrality(int hostId) {
-    int centrality = (int) contactHistory.values().stream()
-        .filter(contacts -> contacts.contains(hostId))
-        .count();
-    betweennessCentrality.put(hostId, centrality);
-  }
-
-  @Override
-  public void deleteMessage(String id, boolean drop) {
-    super.deleteMessage(id, drop);
+  public SimBetRouter replicate() {
+    return new SimBetRouter(this);
   }
 }
