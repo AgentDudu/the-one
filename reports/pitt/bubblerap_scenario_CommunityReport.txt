@@ -1,0 +1,4 @@
+Community Report at sim time 43200
+--------------------------------------------------
+No nodes found with routers implementing CommunityDetectionEngine.
+--------------------------------------------------
