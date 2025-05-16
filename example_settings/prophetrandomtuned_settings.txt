@@ -1,0 +1,140 @@
+##########################################################################################
+### SCENARIO SETTINGS
+##########################################################################################
+
+Scenario.name = prophetrandomtuned_scenario%%Group.msgTtl%%
+## If using external dataset, modify to false.
+Scenario.simulateConnections = true
+# Scenario.updateInterval = 0.1
+Scenario.updateInterval = 1
+
+# Default RandomWaypoint end-time
+# Scenario.endTime = 216000
+Scenario.endTime = 120000
+# Reality dataset end-time
+# Scenario.endTime = 16981816
+
+# Define number of host groups
+Scenario.nrofHostGroups = 1
+
+##########################################################################################
+### INTERRFACE SETTINGS
+##########################################################################################
+
+btInterface.type = SimpleBroadcastInterface
+# Transmit speed of 2 Mbps = 250kBps
+btInterface.transmitSpeed = 250k
+btInterface.transmitRange = 10
+
+# High speed, long range, interface for group 4
+highspeedInterface.type = SimpleBroadcastInterface
+highspeedInterface.transmitSpeed = 10M
+highspeedInterface.transmitRange = 1000
+
+##########################################################################################
+### GROUP SETTINGS
+##########################################################################################
+
+## Common Settings For All Groups
+Group.router = RandomProphetRouter
+Group.bufferSize = 5M
+Group.speed = 0.5, 1.5
+Group.msgTtl = [100;300;500]
+# Group.nrofHosts = 100
+Group.nodeLocation = 10, 10
+
+Group.nrofInterfaces = 1
+Group.interface1 = btInterface
+
+## Specific Group Settings
+
+# Group1 (pedestrian)
+Group1.groupID = p
+Group1.speed = 0.5, 1.5
+Group1.nrofHosts = 80
+Group1.bufferSize = 50M
+Group1.transmitRange = 10
+Group1.movementModel = ShortestPathMapBasedMovement
+
+# Group2 (car)
+Group2.groupID = c
+Group2.speed = 2.7, 13.9
+Group2.nrofHosts = 40
+Group2.bufferSize = 50M
+Group2.transmitRange = 10
+Group2.movementModel = ShortestPathMapBasedMovement
+
+# Group3 (tram)
+Group3.groupID = t
+Group3.speed = 7, 10
+Group3.nrofHosts = 6
+Group3.bufferSize = 500M
+Group3.transmitRange = 1000
+Group3.movementModel = MapRouteMovement
+
+##########################################################################################
+# MESSAGE CREATION PARAMETERS
+##########################################################################################
+
+## REALITY External message creation parameters
+# Events.nrof = 2
+# ## Event 1
+# Events1.class = ExternalEventsQueue
+# Events1.filePath = ./data/Reality/RealityConnectionTraceFinal.txt
+# Events1.interval = 25,35
+# Events1.size = 500k,1M
+# Events1.hosts = 0,97
+# Events1.prefix = E
+#
+# ## Event 2
+# Events2.class = MessageEventGenerator
+# Events2.interval = 580,620
+# Events2.size = 500k,750k
+# Events2.hosts = 0,99
+# Events2.prefix = M
+
+## DEFAULT Message creation parameters
+Events.nrof = 1
+Events1.class = MessageEventGenerator
+Events1.interval = 25,35
+Events1.size = 500k,1M
+Events1.hosts = 0,79
+Events1.prefix = M
+
+##########################################################################################
+# ROUTER CONFIGURATION
+##########################################################################################
+
+ProphetRouter.secondsInTimeUnit = 60
+
+##########################################################################################
+### MOVEMENT MODEL SETTINGS
+##########################################################################################
+
+MovementModel.rngSeed = 5
+MovementModel.worldSize = 4500, 3400
+MovementModel.warmup = 1000
+MapBasedMovement.nrofMapFiles = 4
+
+MapBasedMovement.mapFile1 = data/roads.wkt
+MapBasedMovement.mapFile2 = data/main_roads.wkt
+MapBasedMovement.mapFile3 = data/pedestrian_paths.wkt
+MapBasedMovement.mapFile4 = data/shops.wkt
+
+##########################################################################################
+### Report Settings
+##########################################################################################
+
+Report.nrofReports = 1
+Report.warmup = 1000
+Report.reportDir = reports/prophetcomparison/
+
+# Report classes
+
+Report.report1 = MessageStatsReport
+
+##########################################################################################
+# REPORT SPECIFIC SETTINGS
+##########################################################################################
+
+PeriodicStatsReporter.updateInterval = 1000

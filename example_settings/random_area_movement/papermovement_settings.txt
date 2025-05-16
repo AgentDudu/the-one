@@ -1,0 +1,55 @@
+Scenario.name = coin_mopr_scenario%%Group.bufferSize%%
+Scenario.simulateConnections = true
+Scenario.updateInterval = 100
+Scenario.endTime = 11000
+
+btInterface.type = SimpleBroadcastInterface
+btInterface.transmitSpeed = 250k
+btInterface.transmitRange = 100
+
+Scenario.nrofHostGroups = 1
+
+Group.groupID = m
+Group.nrofHosts = 80
+Group.movementModel = CrowdMovementV2
+Group.router = COINProphetRouter
+Group.bufferSize = [5M;10M;20M;50M;100M]
+Group.waitTime = 30, 120
+Group.speed = 1, 3
+
+Group.nrofInterfaces = 1
+Group.interface1 = btInterface
+Group.msgTtl = 300
+
+#ProphetRouter.secondsInTimeUnit = 30
+#ProphetRouter.beta = 0.25
+#ProphetRouter.gamma = 0.98
+
+# Options: FIFO, MOFO, SHLI, LEPR, MOPR
+GRTRMaxProphetRouter.queueingPolicy = MOPR
+
+MovementModel.rngSeed = 1
+MovementModel.worldSize = 3000, 1500
+MovementModel.warmup = 500
+
+Events.nrof = 1
+Events1.class = MessageEventGenerator
+Events1.interval = 20, 40
+Events1.size = 50k, 200k
+Events1.hosts = 0, 79
+Events1.prefix = M
+Events1.maxCreated = 600
+
+Report.nrofReports = 1
+Report.warmup = 500
+Report.reportDir = reports/lindgren/
+Report.report1 = MessageStatsReport
+
+Optimization.cellSizeMult = 10
+Optimization.randomizeUpdateOrder = true
+
+GUI.UnderlayImage.fileName =
+GUI.UnderlayImage.offset = 0,0
+GUI.UnderlayImage.scale = 1.0
+GUI.UnderlayImage.rotate = 0
+GUI.EventLogPanel.nrofEvents = 50
