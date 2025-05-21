@@ -1,0 +1,65 @@
+Scenario.name = coin_lepr_%%Group.bufferSize%%
+
+Scenario.simulateConnections = true
+Scenario.updateInterval = 0.1
+
+Scenario.endTime = 11000
+
+btInterface.type = SimpleBroadcastInterface
+btInterface.transmitSpeed = 250k
+btInterface.transmitRange = 100
+
+highspeedInterface.type = SimpleBroadcastInterface
+highspeedInterface.transmitSpeed = 10M
+highspeedInterface.transmitRange = 1000
+
+Group.movementModel = CrowdMovementV2
+Group.router = ProphetV3Router
+ProphetV3Router.secondsInTimeUnit = 10
+# FIFO, MOFO, MOPR, SHLI, LEPR
+ProphetV3Router.queueingPolicy = LEPR
+# GRTR, GRTRSORT, GRTRMAX, COIN
+ProphetV3Router.forwardingStrategy = COIN
+
+Group.bufferSize = [20M; 40M; 60M; 80M; 100M; 120M; 140M; 160M; 180M; 200M;]
+
+Group.waitTime = 0, 50
+Group.nrofInterfaces = 1
+Group.interface1 = btInterface
+Group.speed = 0.5, 1.5
+# Message TTL of 300 minutes (5 hours)
+Group.nrofHosts = 100
+
+Group1.groupID = P
+Group1.nodeLocation = 10, 10
+
+Events.nrof = 1
+Events1.class = MessageEventGenerator
+Events1.interval = 30,50
+Events1.size = 500k,1M
+Events1.hosts = 0,99
+Events1.prefix = M
+
+MovementModel.rngSeed = 1
+MovementModel.worldSize = 4500, 3400
+MovementModel.warmup = 500
+
+Report.nrofReports = 1
+Report.warmup = 0
+
+Report.reportDir = reports/lindgren/coin
+Report.report1 = MessageStatsReport
+
+ProphetRouter.secondsInTimeUnit = 10
+SprayAndWaitRouter.binaryMode = true
+
+Optimization.cellSizeMult = 5
+Optimization.randomizeUpdateOrder = true
+
+GUI.UnderlayImage.fileName = data/helsinki_underlay.png
+GUI.UnderlayImage.offset = 64, 20
+GUI.UnderlayImage.scale = 4.75
+GUI.UnderlayImage.rotate = -0.015
+
+GUI.EventLogPanel.nrofEvents = 100
+#GUI.EventLogPanel.REfilter = .*p[1-9]<->p[1-9]$

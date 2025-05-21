@@ -1,252 +1,269 @@
-/*
- * Copyright 2010 Aalto University, ComNet
- * Released under GPLv3. See LICENSE.txt for details.
- */
 package movement;
 
 import core.Coord;
 import core.Settings;
+// import core.SimClock; // Not strictly needed if super.rng is used and well-seeded
 
-import java.util.ArrayList;
-import java.util.List;
+// import java.util.ArrayList; // No longer needed
+// import java.util.List;    // No longer needed
+// import java.util.Random; // Using super.rng
 
 /**
- * Crowd movement model (Version 2) based on home areas and a central gathering
- * place,
- * inspired by the logic from "Evaluation of Queueing Policies and Forwarding
- * Strategies for Routing in Intermittently Connected Networks" by Lindgren et
- * al.
- * Nodes have a home community and probabilistically move between their home,
- * a gathering place, and other communities.
+ * CrowdMovementV5: Further micro-optimization attempts on V4.
+ * Focuses on the single-exclusion random choice.
  */
-public class CrowdMovementV2 extends MovementModel {
+public class CrowdMovementV2 extends MovementModel { // Changed name for clarity
 
-  /**
-   * How many waypoints should there be per path. A single waypoint means
-   * moving directly to a location in the chosen next area.
-   */
-  private static final int PATH_LENGTH = 1;
+  // --- Model Parameters (from paper & interpretation) ---
+  private static final int NUM_COMMUNITIES = 11;
+  private static final int GATHERING_PLACE_AREA_INDEX = NUM_COMMUNITIES; // 11
+  private static final int TOTAL_AREAS = NUM_COMMUNITIES + 1; // 12
 
-  private Coord lastWaypoint;
-
-  private int homeArea = -1;
-
-  private static final int GATHERING_PLACE_AREA_ID = 9;
-  private static final int MIN_COMMUNITY_AREA_ID = 1;
-  private static final int MAX_COMMUNITY_AREA_ID = 8;
-  private static final int NUM_COMMUNITY_AREAS = MAX_COMMUNITY_AREA_ID - MIN_COMMUNITY_AREA_ID + 1;
+  private static final int GRID_COLUMNS = 4;
+  private static final int GRID_ROWS = 3;
 
   private static final double PROB_HOME_TO_GATHERING_PLACE = 0.8;
   private static final double PROB_AWAY_TO_HOME = 0.9;
+
+  // --- Instance Variables ---
+  private int homeAreaIndex; // 0 to NUM_COMMUNITIES-1
+  private Coord currentDestination;
+  private Coord lastPosition;
+
+  private double cellWidth;
+  private double cellHeight;
+  private boolean dimensionsCached = false;
 
   public CrowdMovementV2(Settings settings) {
     super(settings);
   }
 
-  protected CrowdMovementV2(CrowdMovementV2 rwp) {
-    super(rwp);
-    this.homeArea = rwp.homeArea;
+  protected CrowdMovementV2(CrowdMovementV2 proto) {
+    super(proto);
+    this.homeAreaIndex = proto.homeAreaIndex;
+    this.cellWidth = proto.cellWidth;
+    this.cellHeight = proto.cellHeight;
+    this.dimensionsCached = proto.dimensionsCached;
+
+    if (proto.lastPosition != null) {
+      this.lastPosition = proto.lastPosition.clone();
+    }
+    // currentDestination will be set by the first getPath if lastPosition is null
+    // or if it's a fresh path. If lastPosition is non-null, it implies a state.
+    // However, currentDestination is decided *within* getPath, so it doesn't need
+    // deep copy here.
   }
 
-  /**
-   * Returns the initial placement for a host.
-   * Assigns a home area and places the node within its home area.
-   *
-   * @return Initial position on the map, within the node's home area.
-   */
+  private void cacheCellDimensions() {
+    if (!dimensionsCached) {
+      // Ensure getMaxX/Y return valid dimensions
+      double worldX = getMaxX();
+      double worldY = getMaxY();
+
+      if (worldX <= 0 || worldY <= 0 || GRID_COLUMNS <= 0 || GRID_ROWS <= 0) {
+        System.err.println("CRITICAL ERROR: CrowdMovementV5 - Invalid world/grid dimensions. World: "
+            + worldX + "x" + worldY + ", Grid: " + GRID_COLUMNS + "x" + GRID_ROWS);
+        // Fallback to prevent division by zero / negative cells
+        this.cellWidth = 1.0;
+        this.cellHeight = 1.0;
+      } else {
+        this.cellWidth = worldX / GRID_COLUMNS;
+        this.cellHeight = worldY / GRID_ROWS;
+      }
+      dimensionsCached = true;
+    }
+  }
+
   @Override
   public Coord getInitialLocation() {
-    assert rng != null : "MovementModel not initialized!";
+    assert rng != null : "MovementModel RNG not initialized!";
+    cacheCellDimensions();
 
-    if (this.homeArea == -1) {
-      this.homeArea = rng.nextInt(NUM_COMMUNITY_AREAS) + MIN_COMMUNITY_AREA_ID;
-    }
+    this.homeAreaIndex = rng.nextInt(NUM_COMMUNITIES); // 0 to NUM_COMMUNITIES-1
 
-    Coord initialCoord = generateCoordInTargetArea(this.homeArea);
-    this.lastWaypoint = initialCoord;
-    return initialCoord;
+    this.currentDestination = getRandomCoordInArea(this.homeAreaIndex);
+    this.lastPosition = this.currentDestination.clone();
+    return this.lastPosition;
   }
 
   @Override
   public Path getPath() {
-    Path p = new Path(generateSpeed());
-    p.addWaypoint(this.lastWaypoint.clone());
+    assert rng != null : "MovementModel RNG not initialized!";
+    cacheCellDimensions();
 
-    int nextAreaId = chooseNextArea();
-    Coord nextDestCoord = generateCoordInTargetArea(nextAreaId);
-
-    for (int i = 0; i < PATH_LENGTH; i++) {
-      p.addWaypoint(nextDestCoord);
+    if (this.lastPosition == null) {
+      getInitialLocation(); // Robust initialization
     }
 
-    this.lastWaypoint = nextDestCoord.clone();
-    return p;
+    Path path = new Path(generateSpeed());
+    path.addWaypoint(this.lastPosition.clone());
+
+    int currentLogicalArea = getAreaIndexFromCoord(this.lastPosition);
+    int nextLogicalArea = chooseNextLogicalArea(currentLogicalArea);
+
+    this.currentDestination = getRandomCoordInArea(nextLogicalArea);
+    path.addWaypoint(this.currentDestination.clone());
+
+    this.lastPosition = this.currentDestination.clone();
+    return path;
   }
 
-  /**
-   * Chooses the next area to move to based on current location and home area.
-   * This implements the logic from Table 1 of the reference paper.
-   *
-   * @return The ID of the next area to target.
-   */
-  protected int chooseNextArea() {
-    if (this.homeArea == -1) {
-      return rng.nextInt(NUM_COMMUNITY_AREAS) + MIN_COMMUNITY_AREA_ID;
-    }
-    if (this.lastWaypoint == null) {
-      return this.homeArea;
-    }
-
-    int currentArea = getCurrentAreaFromCoord(this.lastWaypoint);
+  private int chooseNextLogicalArea(int currentAreaIdx) {
     double decisionRoll = rng.nextDouble();
+    boolean isInHomeCommunity = (currentAreaIdx == this.homeAreaIndex);
 
-    if (currentArea == this.homeArea) {
+    if (isInHomeCommunity) {
       if (decisionRoll < PROB_HOME_TO_GATHERING_PLACE) {
-        return GATHERING_PLACE_AREA_ID;
+        return GATHERING_PLACE_AREA_INDEX;
       } else {
-        return chooseRandomOtherCommunity(this.homeArea, -1);
+        return getRandomOtherCommunityIndexOptimized(this.homeAreaIndex);
       }
     } else {
       if (decisionRoll < PROB_AWAY_TO_HOME) {
-        return this.homeArea;
+        return this.homeAreaIndex;
       } else {
-        int excludeCurrent = (currentArea != GATHERING_PLACE_AREA_ID) ? currentArea : -1;
-        return chooseRandomOtherCommunity(this.homeArea, excludeCurrent);
+        if (currentAreaIdx == GATHERING_PLACE_AREA_INDEX) {
+          return getRandomOtherCommunityIndexOptimized(this.homeAreaIndex);
+        } else {
+          if (rng.nextBoolean()) {
+            return GATHERING_PLACE_AREA_INDEX;
+          } else {
+            return getRandomOtherCommunityIndexExcludingTwo(this.homeAreaIndex, currentAreaIdx);
+          }
+        }
       }
     }
   }
 
   /**
-   * Helper to choose a random community area, excluding specified areas.
-   * 
-   * @param excludeArea1 Area ID to exclude.
-   * @param excludeArea2 Second area ID to exclude (use -1 if none).
-   * @return A valid community area ID.
+   * Optimized: Gets a random community index (0 to NUM_COMMUNITIES-1) that is NOT
+   * the excludeIndex.
+   * Avoids looping by direct mapping.
    */
-  private int chooseRandomOtherCommunity(int excludeArea1, int excludeArea2) {
-    List<Integer> possibleAreas = new ArrayList<>();
-    for (int i = MIN_COMMUNITY_AREA_ID; i <= MAX_COMMUNITY_AREA_ID; i++) {
-      if (i != excludeArea1 && i != excludeArea2) {
-        possibleAreas.add(i);
-      }
+  private int getRandomOtherCommunityIndexOptimized(int excludeIndex) {
+    if (NUM_COMMUNITIES <= 1) {
+      // If only one community, it must be the one to exclude, or no exclusion makes
+      // sense.
+      // This case implies no "other" community exists. Returning 0 (or a default) is
+      // a fallback.
+      return 0;
     }
+    // Generate a random number in the range [0, NUM_COMMUNITIES - 2]
+    // This range has one less item than the total number of communities.
+    int randomIndex = rng.nextInt(NUM_COMMUNITIES - 1);
 
-    if (possibleAreas.isEmpty()) {
-      return (this.homeArea != -1 && this.homeArea != excludeArea1 && this.homeArea != excludeArea2) ? this.homeArea
-          : MIN_COMMUNITY_AREA_ID;
+    // If the random index is greater than or equal to the one we want to exclude,
+    // it means it falls in the part of the sequence *after* the excluded item.
+    // So, we shift it by one to "skip over" the excluded item.
+    if (randomIndex >= excludeIndex) {
+      return randomIndex + 1;
+    } else {
+      return randomIndex; // The chosen index is before the excluded one, so it's fine.
     }
-    return possibleAreas.get(rng.nextInt(possibleAreas.size()));
   }
 
   /**
-   * Generates a random coordinate within the specified target area.
-   * The area definitions follow a 3x3 grid:
-   * 1 2 3
-   * 4 9 5 (9 is Gathering Place)
-   * 6 7 8
-   * 
-   * @param targetAreaID The ID of the area (1-9).
-   * @return A random coordinate within that area.
+   * Gets a random community index (0 to NUM_COMMUNITIES-1) that is NOT
+   * excludeIndex1 NOR excludeIndex2.
+   * Kept the loop version as direct mapping for two exclusions is more complex
+   * and less readable
+   * for potentially minor gain with N=11.
    */
-  protected Coord generateCoordInTargetArea(int targetAreaID) {
-    double x = 0, y = 0;
-    double maxX = getMaxX();
-    double maxY = getMaxY();
-
-    double thirdX = maxX / 3.0;
-    double twoThirdsX = maxX * 2.0 / 3.0;
-    double thirdY = maxY / 3.0;
-    double twoThirdsY = maxY * 2.0 / 3.0;
-
-    switch (targetAreaID) {
-      case 1:
-        x = rng.nextDouble() * thirdX;
-        y = rng.nextDouble() * (maxY - twoThirdsY) + twoThirdsY;
-        break;
-      case 2:
-        x = rng.nextDouble() * (twoThirdsX - thirdX) + thirdX;
-        y = rng.nextDouble() * (maxY - twoThirdsY) + twoThirdsY;
-        break;
-      case 3:
-        x = rng.nextDouble() * (maxX - twoThirdsX) + twoThirdsX;
-        y = rng.nextDouble() * (maxY - twoThirdsY) + twoThirdsY;
-        break;
-      case 4:
-        x = rng.nextDouble() * thirdX;
-        y = rng.nextDouble() * (twoThirdsY - thirdY) + thirdY;
-        break;
-      case GATHERING_PLACE_AREA_ID:
-        x = rng.nextDouble() * (twoThirdsX - thirdX) + thirdX;
-        y = rng.nextDouble() * (twoThirdsY - thirdY) + thirdY;
-        break;
-      case 5:
-        x = rng.nextDouble() * (maxX - twoThirdsX) + twoThirdsX;
-        y = rng.nextDouble() * (twoThirdsY - thirdY) + thirdY;
-        break;
-      case 6:
-        x = rng.nextDouble() * thirdX;
-        y = rng.nextDouble() * thirdY;
-        break;
-      case 7:
-        x = rng.nextDouble() * (twoThirdsX - thirdX) + thirdX;
-        y = rng.nextDouble() * thirdY;
-        break;
-      case 8:
-        x = rng.nextDouble() * (maxX - twoThirdsX) + twoThirdsX;
-        y = rng.nextDouble() * thirdY;
-        break;
-      default:
-        x = rng.nextDouble() * maxX;
-        y = rng.nextDouble() * maxY;
+  private int getRandomOtherCommunityIndexExcludingTwo(int excludeIndex1, int excludeIndex2) {
+    if (NUM_COMMUNITIES < 1)
+      return 0; // Should not happen
+    if (NUM_COMMUNITIES == 1)
+      return 0; // Only one option
+    if (NUM_COMMUNITIES == 2) {
+      // If we must exclude both, there's no choice. This is an edge case.
+      // Or if one exclude is invalid.
+      if (excludeIndex1 == 0 && excludeIndex2 == 1 || excludeIndex1 == 1 && excludeIndex2 == 0) {
+        // This situation implies an issue with calling logic or NUM_COMMUNITIES
+        // definition
+        System.err.println(
+            "WARN: Attempting to exclude all available communities in getRandomOtherCommunityIndexExcludingTwo");
+        return 0; // Fallback
+      }
+      // If only one is excluded (e.g. exclude1=0, exclude2=5 (invalid)), return the
+      // other valid one.
+      return (excludeIndex1 == 0 || excludeIndex2 == 0) ? 1 : 0;
     }
+
+    int chosenIndex;
+    int retries = 0;
+    final int MAX_RETRIES = NUM_COMMUNITIES * 2; // Safety break for unlikely infinite loop
+    do {
+      chosenIndex = rng.nextInt(NUM_COMMUNITIES);
+      if (retries++ > MAX_RETRIES && NUM_COMMUNITIES > 2) { // Only break if there should be valid options
+        System.err.println("WARN: Exceeded max retries in getRandomOtherCommunityIndexExcludingTwo. " +
+            "Ex1: " + excludeIndex1 + ", Ex2: " + excludeIndex2 + ", Chosen: " + chosenIndex);
+        // Fallback to just avoiding one of them if stuck
+        return getRandomOtherCommunityIndexOptimized(excludeIndex1);
+      }
+    } while (chosenIndex == excludeIndex1 || chosenIndex == excludeIndex2);
+    return chosenIndex;
+  }
+
+  private Coord getRandomCoordInArea(int areaIndex) {
+    if (areaIndex < 0 || areaIndex >= TOTAL_AREAS) {
+      System.err.println(
+          "WARN: Invalid targetAreaIndex " + areaIndex + " in getRandomCoordInArea. Defaulting to random world coord.");
+      return new Coord(rng.nextDouble() * getMaxX(), rng.nextDouble() * getMaxY());
+    }
+
+    int row = areaIndex / GRID_COLUMNS;
+    int col = areaIndex % GRID_COLUMNS;
+
+    double minX = col * this.cellWidth;
+    double minY = row * this.cellHeight;
+
+    double x = minX + (rng.nextDouble() * this.cellWidth);
+    double y = minY + (rng.nextDouble() * this.cellHeight);
+
+    x = Math.max(0, Math.min(x, getMaxX() - 1e-9)); // Using a small epsilon
+    y = Math.max(0, Math.min(y, getMaxY() - 1e-9));
+
     return new Coord(x, y);
   }
 
-  /**
-   * Determines which area a given coordinate falls into.
-   * Uses the same 3x3 grid as generateCoordInTargetArea.
-   * 
-   * @param coord The coordinate to check.
-   * @return The ID of the area (1-9).
-   */
-  private int getCurrentAreaFromCoord(Coord coord) {
+  private int getAreaIndexFromCoord(Coord coord) {
     if (coord == null) {
-      return GATHERING_PLACE_AREA_ID;
+      System.err.println("WARN: getCurrentAreaFromCoord called with null coord. Defaulting.");
+      return GATHERING_PLACE_AREA_INDEX;
     }
 
     double x = coord.getX();
     double y = coord.getY();
-    double maxX = getMaxX();
-    double maxY = getMaxY();
 
-    double x_boundary1 = maxX / 3.0;
-    double x_boundary2 = maxX * 2.0 / 3.0;
-    double y_boundary1 = maxY / 3.0;
-    double y_boundary2 = maxY * 2.0 / 3.0;
+    x = Math.max(0, Math.min(x, getMaxX() - 1e-9));
+    y = Math.max(0, Math.min(y, getMaxY() - 1e-9));
 
-    if (y >= y_boundary2) {
-      if (x < x_boundary1)
-        return 1;
-      if (x < x_boundary2)
-        return 2;
-      return 3;
-    } else if (y >= y_boundary1) {
-      if (x < x_boundary1)
-        return 4;
-      if (x < x_boundary2)
-        return GATHERING_PLACE_AREA_ID;
-      return 5;
-    } else {
-      if (x < x_boundary1)
-        return 6;
-      if (x < x_boundary2)
-        return 7;
-      return 8;
+    if (this.cellWidth <= 0 || this.cellHeight <= 0) { // Check cached values
+      System.err.println("WARN: Zero or negative cell dimension in getAreaIndexFromCoord. " +
+          "cellWidth: " + this.cellWidth + ", cellHeight: " + this.cellHeight +
+          ". Recaching and defaulting.");
+      dimensionsCached = false; // Force recache on next relevant call
+      cacheCellDimensions(); // Attempt to fix
+      if (this.cellWidth <= 0 || this.cellHeight <= 0)
+        return GATHERING_PLACE_AREA_INDEX; // Still bad
     }
+
+    int col = (int) (x / this.cellWidth);
+    int row = (int) (y / this.cellHeight);
+
+    col = Math.min(Math.max(col, 0), GRID_COLUMNS - 1);
+    row = Math.min(Math.max(row, 0), GRID_ROWS - 1);
+
+    return row * GRID_COLUMNS + col;
   }
 
   @Override
-  public CrowdMovementV2 replicate() {
+  public double nextPathAvailable() {
+    return 0;
+  }
+
+  @Override
+  public CrowdMovementV2 replicate() { // Changed return type
     return new CrowdMovementV2(this);
   }
 }
