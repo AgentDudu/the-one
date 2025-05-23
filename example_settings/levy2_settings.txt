@@ -1,0 +1,80 @@
+#
+# Levy walk settings for the simulation
+#
+
+Scenario.name = levy_walk
+Scenario.simulateConnections = true
+Scenario.updateInterval = 0.1
+# 43200s == 12h
+Scenario.endTime = 5000
+
+btInterface.type = SimpleBroadcastInterface
+btInterface.transmitSpeed = 250k
+btInterface.transmitRange = 10
+
+highspeedInterface.type = SimpleBroadcastInterface
+highspeedInterface.transmitSpeed = 10M
+highspeedInterface.transmitRange = 1000
+
+Scenario.nrofHostGroups = 1
+
+Group.movementModel = LevyWalkMovement
+LevyWalkMovement.alpha = 1.0
+LevyWalkMovement.minStep = 0.1
+LevyWalkMovement.scaleFactor = 10
+Group.router = EpidemicRouter
+ProphetV4Router.secondsInTimeUnit = 30
+# FIFO, MOFO, MOPR, SHLI, LEPR
+ProphetV3Router.queueingPolicy = FIFO
+# GRTR, GRTR_SORT, GRTR_MAX, COIN
+ProphetV4Router.forwardingStrategy = GRTR
+Group.bufferSize = 5M
+Group.waitTime = 0, 0
+Group.nrofInterfaces = 1
+Group.interface1 = btInterface
+Group.speed = 0.5, 1.0
+# Message TTL of 300 minutes (5 hours)
+Group.msgTtl = 300
+
+Group.nrofHosts = 3
+
+Group1.groupID = p
+
+Events.nrof = 1
+Events1.class = MessageEventGenerator
+Events1.interval = 25,35
+Events1.size = 500k,1M
+Events1.hosts = 0,2
+Events1.prefix = M
+
+
+MovementModel.rngSeed = 1
+MovementModel.worldSize = 500 , 500
+MovementModel.warmup = 0
+
+MapBasedMovement.nrofMapFiles = 4
+
+MapBasedMovement.mapFile1 = data/roads.wkt
+MapBasedMovement.mapFile2 = data/main_roads.wkt
+MapBasedMovement.mapFile3 = data/pedestrian_paths.wkt
+MapBasedMovement.mapFile4 = data/shops.wkt
+
+Report.nrofReports = 1
+Report.warmup = 0
+Report.reportDir = reports/levy2/
+Report.report1 = NodeTrajectoryReport
+NodeTrajectoryReport.reportedGroup = p
+NodeTrajectoryReport.granularity = 1.0
+
+ProphetRouter.secondsInTimeUnit = 30
+SprayAndWaitRouter.nrofCopies = 6
+SprayAndWaitRouter.binaryMode = true
+
+Optimization.cellSizeMult = 5
+Optimization.randomizeUpdateOrder = true
+
+GUI.nodeTrailEnabled = true
+GUI.nodeTrailLength = 1000
+GUI.nodeTrailColor = 0,0,200
+GUI.nodeTrailFadeEnabled = false
+

@@ -15,7 +15,7 @@ import core.UpdateListener;
  */
 public class NodeTrajectoryReport extends Report implements UpdateListener {
 
-  public static final String GRANULARITY = "granularity";
+  public static final String GRANULARITY = "granularity"; // idk why i didnt call this shit interval
   public static final int DEFAULT_GRANULARITY = 1;
   public static final String REPORTED_HOSTS_S = "reportedHostIndices";
   public static final String REPORTED_GROUP_S = "reportedGroup";
