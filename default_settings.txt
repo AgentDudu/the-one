@@ -180,3 +180,8 @@ GUI.UnderlayImage.rotate = -0.015
 GUI.EventLogPanel.nrofEvents = 100
 # Regular Expression log filter (see Pattern-class from the Java API for RE-matching details)
 #GUI.EventLogPanel.REfilter = .*p[1-9]<->p[1-9]$
+
+GUI.nodeTrailEnabled = false
+GUI.nodeTrailLength = 1000
+GUI.nodeTrailColor = 0,0,200
+GUI.nodeTrailFadeEnabled = true
